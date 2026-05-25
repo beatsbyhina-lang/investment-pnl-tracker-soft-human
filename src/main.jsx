@@ -125,7 +125,8 @@ function App() {
       return [];
     }
   });
-  const [message, setMessage] = useState("楽天証券の保有商品CSVを読み込むと、ここに銘柄が並びます。");
+  const [message, setMessage] = useState("銘柄コードだけでも登録できます。CSV読み込みも使えます。");
+  const [manual, setManual] = useState({ code: "", quantity: "", averageCost: "" });
   const [loading, setLoading] = useState(false);
   const inputRef = useRef(null);
 
@@ -164,9 +165,56 @@ function App() {
     }
   };
 
+  const addByCode = async (event) => {
+    event.preventDefault();
+    const code = normalizeCode(manual.code);
+    const quantity = numeric(manual.quantity) ?? 1;
+    const averageCost = numeric(manual.averageCost);
+
+    if (!code) {
+      setMessage("銘柄コードを入力してください。例: 7203");
+      return;
+    }
+
+    setLoading(true);
+    setMessage(`${code} を登録しています。`);
+    try {
+      const quoteResponse = await fetch(`/api/quote?symbols=${encodeURIComponent(code)}`);
+      const quoteData = await quoteResponse.json();
+      const quote = quoteData.quotes?.[0];
+
+      if (quote?.error) throw new Error(quote.error);
+
+      const item = {
+        id: `${Date.now()}-${code}`,
+        name: quote?.name || code,
+        code,
+        quantity,
+        averageCost,
+        importedPnl: null,
+        price: quote?.price ?? null,
+        updatedAt: quote?.price ? new Date().toISOString() : null,
+        news: [],
+        error: "",
+      };
+
+      setHoldings((current) => {
+        const exists = current.some((holding) => holding.code.toLowerCase() === code.toLowerCase());
+        return exists ? current.map((holding) => (holding.code.toLowerCase() === code.toLowerCase() ? item : holding)) : [item, ...current];
+      });
+      setManual({ code: "", quantity: "", averageCost: "" });
+      setMessage(`${code} を登録しました。ニュースは「株価」から更新できます。`);
+      setTab("prices");
+    } catch (error) {
+      setMessage(`登録できませんでした: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const updatePricesAndNews = async () => {
     if (!holdings.length) {
-      setMessage("先に「記録」から楽天証券CSVを読み込んでください。");
+      setMessage("先に「記録」から銘柄コードを登録するか、CSVを読み込んでください。");
       setTab("record");
       return;
     }
@@ -240,9 +288,45 @@ function App() {
         {tab === "record" && (
           <section className="panel">
             <div className="sectionTitle">
-              <FileUp size={20} />
+              <Search size={20} />
               <h2>記録</h2>
             </div>
+            <form className="manualForm" onSubmit={addByCode}>
+              <label>
+                銘柄コード
+                <input
+                  inputMode="numeric"
+                  placeholder="7203"
+                  value={manual.code}
+                  onChange={(event) => setManual((current) => ({ ...current, code: event.target.value }))}
+                />
+              </label>
+              <div className="formGrid">
+                <label>
+                  数量
+                  <input
+                    inputMode="decimal"
+                    placeholder="100"
+                    value={manual.quantity}
+                    onChange={(event) => setManual((current) => ({ ...current, quantity: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  取得単価
+                  <input
+                    inputMode="decimal"
+                    placeholder="任意"
+                    value={manual.averageCost}
+                    onChange={(event) => setManual((current) => ({ ...current, averageCost: event.target.value }))}
+                  />
+                </label>
+              </div>
+              <button className="primaryButton" type="submit" disabled={loading}>
+                <Save size={18} />
+                コードで登録
+              </button>
+            </form>
+            <div className="divider">CSVでまとめて登録</div>
             <button className="primaryButton" onClick={() => inputRef.current?.click()} disabled={loading}>
               <FileUp size={18} />
               楽天証券CSVを読み込み
@@ -330,9 +414,10 @@ function App() {
               <h2>使い方</h2>
             </div>
             <ol className="steps">
-              <li>楽天証券から保有商品CSVをダウンロードします。</li>
-              <li>下メニューの「記録」から「楽天証券CSVを読み込み」を押します。</li>
-              <li>読み込み後、「株価」から「株価・ニュース更新」を押します。</li>
+              <li>下メニューの「記録」で銘柄コードを入れて登録します。</li>
+              <li>数量と取得単価を入れると評価額と損益が見やすくなります。</li>
+              <li>楽天証券CSVを持っている場合は「楽天証券CSVを読み込み」も使えます。</li>
+              <li>登録後、「株価」から「株価・ニュース更新」を押します。</li>
               <li>iPhoneではSafariの共有ボタンから「ホーム画面に追加」するとアプリ風に使えます。</li>
             </ol>
             <div className="tip">
