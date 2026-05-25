@@ -42,6 +42,7 @@ export default async function handler(req, res) {
           input,
           symbol: displaySymbol(input),
           yahooSymbol,
+          name: meta.shortName || meta.longName || meta.symbol || displaySymbol(input),
           price,
           currency: meta.currency || "JPY",
           marketTime: meta.regularMarketTime || null,
