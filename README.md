@@ -1,7 +1,42 @@
-# Investment PnL Tracker
+# 楽天証券CSV 投資トラッカー
 
-React TSX component for tracking monthly investment profit and loss.
+楽天証券の保有商品CSVを読み込み、保有銘柄の株価、評価額、含み損益、関連ニュースを確認するためのスマホ向けWebアプリです。
 
-## File
+## 使い方
 
-- `investment-pnl-tracker-soft-human.tsx`
+1. 楽天証券から保有商品CSVをダウンロードします。
+2. アプリ下メニューの「記録」を開きます。
+3. 「楽天証券CSVを読み込み」を押してCSVを選びます。
+4. 下メニューの「株価」を開きます。
+5. 「株価・ニュース更新」を押します。
+
+## iPhoneでアプリ風に使う
+
+1. Safariで公開URLを開きます。
+2. 共有ボタンを押します。
+3. 「ホーム画面に追加」を選びます。
+4. ホーム画面のアイコンから開きます。
+
+## CSVで読み込む列
+
+次の列名を自動判定します。楽天証券CSVの表記ゆれにも少し対応しています。
+
+- 銘柄名
+- 銘柄コード
+- 保有数量
+- 平均取得単価
+- 損益
+
+日本株コードは `7203` のような4桁コードを自動で `7203.jp` として扱います。株価取得APIではYahoo Finance向けに `7203.T` へ変換します。
+
+## API
+
+- `api/quote.js`: 現在株価を取得します。
+- `api/news.js`: 関連ニュースを取得します。
+
+## 開発
+
+```bash
+npm install
+npm run dev
+```
