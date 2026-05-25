@@ -1,0 +1,1139 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Investment PnL Tracker</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+      * { box-sizing: border-box; }
+      html, body, #root { min-height: 100%; margin: 0; }
+      body { background: #f8fafc; }
+      button, input { font: inherit; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      window.storage = window.storage || {
+        async get(key) {
+          const value = window.localStorage.getItem(key);
+          return value === null ? null : { value };
+        },
+        async set(key, value) {
+          window.localStorage.setItem(key, value);
+        }
+      };
+    </script>
+    <script type="text/babel" data-presets="react">
+const { useEffect, useMemo, useState } = React;
+
+// ─── Constants ────────────────────────────────────────────────
+const MONTHS = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+const CATS = ["個別株", "投資信託"];
+const CAT_COLOR = { "個別株": "#16a34a", "投資信託": "#6366f1" };
+const CAT_DIM = { "個別株": "#dcfce7", "投資信託": "#e0e7ff" };
+
+const yen = (n, showSign = true) => {
+  if (n === null || n === undefined || Number.isNaN(n)) return "－";
+  const s = Math.abs(Number(n)).toLocaleString("ja-JP");
+  const sign = n >= 0 ? (showSign ? "+" : "") : "−";
+  return sign + s + "円";
+};
+
+const shortYen = (n) => {
+  if (n === null || n === undefined || Number.isNaN(n)) return "未記録";
+  const sign = n >= 0 ? "+" : "−";
+  const abs = Math.abs(Number(n));
+  if (abs >= 1000000) return `${sign}${(abs / 1000000).toFixed(1)}M`;
+  if (abs >= 1000) return `${sign}${Math.round(abs / 1000)}k`;
+  return `${sign}${abs}`;
+};
+
+const pnlColor = (n) => n === null || n === undefined ? "#94a3b8" : n >= 0 ? "#16a34a" : "#dc2626";
+const bgFor = (n) => n === null || n === undefined ? "#f8fafc" : n >= 0 ? "#dcfce7" : "#fee2e2";
+const borderFor = (n) => n === null || n === undefined ? "#e2e8f0" : n >= 0 ? "#86efac" : "#fecaca";
+
+// ─── Storage helpers ──────────────────────────────────────────
+const load = async (key) => {
+  try {
+    const r = await window.storage.get(key);
+    return r ? JSON.parse(r.value) : null;
+  } catch {
+    return null;
+  }
+};
+
+const save = async (key, val) => {
+  try {
+    await window.storage.set(key, JSON.stringify(val));
+  } catch {}
+};
+
+// ─── Main App ─────────────────────────────────────────────────
+function App() {
+  const year = new Date().getFullYear();
+  const currentMonth = new Date().getMonth() + 1;
+
+  // records: { "2025-4-個別株": { total: 54100, tickers: [{name, pnl}] } }
+  const [records, setRecords] = useState({});
+  const [loaded, setLoaded] = useState(false);
+
+  // UI state
+  const [tab, setTab] = useState("home"); // home | input | detail
+  const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+  const [modal, setModal] = useState(null); // null | { month, cat }
+  const [editTotal, setEditTotal] = useState("");
+  const [tickers, setTickers] = useState([]);
+  const [newTicker, setNewTicker] = useState({ name: "", pnl: "" });
+
+  // Load existing storage key so old data stays usable.
+  useEffect(() => {
+    (async () => {
+      const saved = await load("inv2_records");
+      const init = saved || { "2025-4-個別株": { total: 54100, tickers: [{ name: "", pnl: 54100 }] } };
+      setRecords(init);
+      setLoaded(true);
+    })();
+  }, []);
+
+  // Save
+  useEffect(() => {
+    if (loaded) save("inv2_records", records);
+  }, [records, loaded]);
+
+  // ── Derived data ──────────────────────────────────────────
+  const getRecord = (m, cat) => records[`${year}-${m}-${cat}`] || null;
+
+  const monthTotal = (m) => {
+    let sum = 0;
+    let any = false;
+    for (const cat of CATS) {
+      const r = getRecord(m, cat);
+      if (r !== null) {
+        sum += Number(r.total) || 0;
+        any = true;
+      }
+    }
+    return any ? sum : null;
+  };
+
+  const catAnnual = (cat) => {
+    let sum = 0;
+    let any = false;
+    for (let m = 1; m <= 12; m++) {
+      const r = getRecord(m, cat);
+      if (r) {
+        sum += Number(r.total) || 0;
+        any = true;
+      }
+    }
+    return any ? sum : null;
+  };
+
+  const grandTotal = () => {
+    let sum = 0;
+    let any = false;
+    for (const cat of CATS) {
+      const t = catAnnual(cat);
+      if (t !== null) {
+        sum += t;
+        any = true;
+      }
+    }
+    return any ? sum : null;
+  };
+
+  const cumulative = useMemo(() => {
+    let cum = 0;
+    return MONTHS.map((_, i) => {
+      const t = monthTotal(i + 1);
+      if (t !== null) cum += t;
+      return cum;
+    });
+  }, [records, year]);
+
+  const monthData = MONTHS.map((label, i) => {
+    const m = i + 1;
+    return {
+      month: m,
+      label,
+      stock: getRecord(m, "個別株")?.total ?? null,
+      fund: getRecord(m, "投資信託")?.total ?? null,
+      total: monthTotal(m),
+      cum: cumulative[i],
+    };
+  });
+
+  const maxAbs = Math.max(1, ...monthData.map((d) => d.total !== null ? Math.abs(d.total) : 0));
+  const maxCum = Math.max(1, ...cumulative.map(Math.abs));
+
+  const bestMonth = monthData.filter((d) => d.total !== null).sort((a, b) => b.total - a.total)[0];
+  const worstMonth = monthData.filter((d) => d.total !== null).sort((a, b) => a.total - b.total)[0];
+  const selectedTotal = monthTotal(selectedMonth);
+
+  const allTickers = (cat) => {
+    const map = {};
+    for (let m = 1; m <= 12; m++) {
+      const r = getRecord(m, cat);
+      if (!r) continue;
+      for (const t of r.tickers || []) {
+        if (!t.name) continue;
+        map[t.name] = (map[t.name] || 0) + (Number(t.pnl) || 0);
+      }
+    }
+    return Object.entries(map).sort((a, b) => b[1] - a[1]);
+  };
+
+  // ── Modal helpers ─────────────────────────────────────────
+  const openModal = (month, cat) => {
+    const r = getRecord(month, cat);
+    setSelectedMonth(month);
+    setEditTotal(r ? String(r.total) : "");
+    setTickers(r ? (r.tickers || []).map((t) => ({ ...t })) : []);
+    setNewTicker({ name: "", pnl: "" });
+    setModal({ month, cat });
+  };
+
+  const saveModal = () => {
+    if (!modal) return;
+    const key = `${year}-${modal.month}-${modal.cat}`;
+    const total = editTotal === "" ? null : Number(editTotal);
+
+    if (total === null || Number.isNaN(total)) {
+      setRecords((prev) => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    } else {
+      const validTickers = tickers
+        .map((t) => ({ name: String(t.name || "").trim(), pnl: Number(t.pnl) || 0 }))
+        .filter((t) => t.name || t.pnl !== 0);
+      setRecords((prev) => ({ ...prev, [key]: { total, tickers: validTickers } }));
+    }
+    setModal(null);
+  };
+
+  const syncTotal = (ts) => {
+    const sum = ts.reduce((a, t) => a + (Number(t.pnl) || 0), 0);
+    setEditTotal(String(sum));
+  };
+
+  const addTicker = () => {
+    if (!newTicker.name.trim() && newTicker.pnl === "") return;
+    const next = [...tickers, { name: newTicker.name.trim(), pnl: Number(newTicker.pnl) || 0 }];
+    setTickers(next);
+    syncTotal(next);
+    setNewTicker({ name: "", pnl: "" });
+  };
+
+  const removeTicker = (i) => {
+    const next = tickers.filter((_, idx) => idx !== i);
+    setTickers(next);
+    syncTotal(next);
+  };
+
+  return (
+    <div style={styles.app}>
+      <header style={styles.header}>
+        <div style={styles.topRow}>
+          <div>
+            <div style={styles.eyebrow}>記録ノート {year}</div>
+            <h1 style={styles.title}>投資の記録</h1>
+          </div>
+          <div style={{ ...styles.statusPill, color: pnlColor(grandTotal()), background: bgFor(grandTotal()), borderColor: borderFor(grandTotal()) }}>
+            {grandTotal() !== null && grandTotal() >= 0 ? "利益" : grandTotal() === null ? "未記録" : "損失"}
+          </div>
+        </div>
+
+        <div style={styles.heroCard}>
+          <div style={styles.heroLabel}>今年の合計</div>
+          <div style={{ ...styles.heroValue, color: pnlColor(grandTotal()) }}>{yen(grandTotal())}</div>
+          <div style={styles.kpiGrid}>
+            <MiniKpi label="個別株" value={catAnnual("個別株")} color={CAT_COLOR["個別株"]} />
+            <MiniKpi label="投資信託" value={catAnnual("投資信託")} color={CAT_COLOR["投資信託"]} />
+          </div>
+        </div>
+      </header>
+
+      <main style={styles.main}>
+        {tab === "home" && (
+          <>
+            <section style={styles.card}>
+              <div style={styles.sectionHead}>
+                <div>
+                  <div style={styles.sectionLabel}>月ごとの流れ</div>
+                  <h2 style={styles.sectionTitle}>月ごとの損益</h2>
+                </div>
+                <button style={styles.smallButton} onClick={() => setTab("input")}>記録する</button>
+              </div>
+
+              <div style={styles.barChart}>
+                {monthData.map(({ month, total }) => {
+                  const h = total !== null ? Math.max(8, (Math.abs(total) / maxAbs) * 120) : 6;
+                  const selected = month === selectedMonth;
+                  return (
+                    <button
+                      key={month}
+                      onClick={() => setSelectedMonth(month)}
+                      style={{ ...styles.barItem, opacity: total === null ? 0.45 : 1 }}
+                      aria-label={`${month}月 ${yen(total)}`}
+                    >
+                      <span style={{ ...styles.barValue, color: pnlColor(total) }}>{total !== null ? shortYen(total) : ""}</span>
+                      <span
+                        style={{
+                          ...styles.bar,
+                          height: h,
+                          background: total === null ? "#e2e8f0" : total >= 0 ? "linear-gradient(180deg,#86efac,#22c55e)" : "linear-gradient(180deg,#fca5a5,#ef4444)",
+                          outline: selected ? "2px solid #6366f1" : "none",
+                        }}
+                      />
+                      <span style={{ ...styles.monthLabel, color: selected ? "#4f46e5" : "#94a3b8" }}>{month}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section style={styles.card}>
+              <div style={styles.sectionHeadCompact}>
+                <div>
+                  <div style={styles.sectionLabel}>選択中</div>
+                  <h2 style={styles.sectionTitle}>{selectedMonth}月のメモ</h2>
+                </div>
+                <div style={{ ...styles.totalBadge, color: pnlColor(selectedTotal), background: bgFor(selectedTotal), borderColor: borderFor(selectedTotal) }}>
+                  {yen(selectedTotal)}
+                </div>
+              </div>
+              <div style={styles.actionGrid}>
+                {CATS.map((cat) => {
+                  const r = getRecord(selectedMonth, cat);
+                  return (
+                    <button key={cat} onClick={() => openModal(selectedMonth, cat)} style={{ ...styles.catButton, borderColor: r ? CAT_COLOR[cat] : "#253044" }}>
+                      <span style={{ ...styles.catDot, background: CAT_COLOR[cat] }} />
+                      <span style={styles.catName}>{cat}</span>
+                      <strong style={{ color: pnlColor(r?.total ?? null) }}>{r ? yen(r.total) : "記録"}</strong>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section style={styles.card}>
+              <div style={styles.sectionLabel}>年間の流れ</div>
+              <h2 style={styles.sectionTitle}>ここまでの合計</h2>
+              <svg width="100%" viewBox="0 0 340 140" style={{ marginTop: 14, overflow: "visible" }}>
+                <defs>
+                  <linearGradient id="cumFillMobile" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#a5b4fc" stopOpacity="0.28" />
+                    <stop offset="100%" stopColor="#a5b4fc" stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {(() => {
+                  const zeroY = 70;
+                  const pts = cumulative.map((c, i) => {
+                    const x = 12 + (i / 11) * 316;
+                    const y = zeroY - (c / maxCum) * 54;
+                    return [x, Math.max(10, Math.min(126, y))];
+                  });
+                  const d = pts.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x},${y}`).join(" ");
+                  const area = `${d} L${pts[pts.length - 1][0]},130 L${pts[0][0]},130 Z`;
+                  return (
+                    <>
+                      <line x1="12" y1={zeroY} x2="328" y2={zeroY} stroke="#e2e8f0" strokeWidth="1" strokeDasharray="4 4" />
+                      <path d={area} fill="url(#cumFillMobile)" />
+                      <path d={d} fill="none" stroke="#6366f1" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                      {pts.map(([x, y], i) => <circle key={i} cx={x} cy={y} r="3.4" fill="#6366f1" stroke="#ffffff" strokeWidth="1.5" />)}
+                    </>
+                  );
+                })()}
+              </svg>
+              <div style={styles.summaryGrid}>
+                <Summary label="よかった月" value={bestMonth ? `${bestMonth.label} ${yen(bestMonth.total)}` : "－"} />
+                <Summary label="きびしかった月" value={worstMonth ? `${worstMonth.label} ${yen(worstMonth.total)}` : "－"} />
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab === "input" && (
+          <>
+            <section style={styles.card}>
+              <div style={styles.sectionHeadCompact}>
+                <div>
+                  <div style={styles.sectionLabel}>記録</div>
+                  <h2 style={styles.sectionTitle}>月を選んで記録</h2>
+                </div>
+                <div style={styles.helpText}>押して編集</div>
+              </div>
+              <div style={styles.monthGrid}>
+                {monthData.map(({ month, label, total }) => (
+                  <button
+                    key={month}
+                    onClick={() => setSelectedMonth(month)}
+                    style={{
+                      ...styles.monthCard,
+                      background: selectedMonth === month ? "#eef2ff" : "#ffffff",
+                      borderColor: selectedMonth === month ? "#818cf8" : borderFor(total),
+                    }}
+                  >
+                    <span style={styles.monthCardLabel}>{label}</span>
+                    <strong style={{ color: pnlColor(total) }}>{shortYen(total)}</strong>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section style={styles.card}>
+              <div style={styles.sectionLabel}>{year}年</div>
+              <h2 style={styles.sectionTitle}>{selectedMonth}月の記録</h2>
+              <div style={styles.inputButtons}>
+                {CATS.map((cat) => {
+                  const r = getRecord(selectedMonth, cat);
+                  return (
+                    <button key={cat} onClick={() => openModal(selectedMonth, cat)} style={{ ...styles.largeEditButton, borderColor: CAT_COLOR[cat] }}>
+                      <span style={{ ...styles.largeIcon, background: CAT_DIM[cat], color: CAT_COLOR[cat] }}>{cat.slice(0, 1)}</span>
+                      <span style={{ flex: 1 }}>
+                        <span style={styles.largeEditLabel}>{cat}</span>
+                        <strong style={{ ...styles.largeEditValue, color: pnlColor(r?.total ?? null) }}>{r ? yen(r.total) : "未記録"}</strong>
+                      </span>
+                      <span style={styles.chevron}>›</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          </>
+        )}
+
+        {tab === "detail" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            {CATS.map((cat) => {
+              const rows = allTickers(cat);
+              const total = catAnnual(cat);
+              return (
+                <section key={cat} style={{ ...styles.card, borderColor: `${CAT_COLOR[cat]}55` }}>
+                  <div style={styles.sectionHeadCompact}>
+                    <div>
+                      <div style={{ ...styles.sectionLabel, color: CAT_COLOR[cat] }}>{cat}</div>
+                      <h2 style={styles.sectionTitle}>銘柄ごとの記録</h2>
+                    </div>
+                    <div style={{ ...styles.totalBadge, color: pnlColor(total), background: bgFor(total), borderColor: borderFor(total) }}>{yen(total)}</div>
+                  </div>
+
+                  {rows.length === 0 ? (
+                    <div style={styles.emptyState}>まだ銘柄の記録がありません。<br />月の記録から追加できます。</div>
+                  ) : (
+                    <div style={styles.tickerList}>
+                      {rows.map(([name, pnl]) => {
+                        const pct = total ? Math.min(100, Math.round(Math.abs(pnl / total) * 100)) : 0;
+                        return (
+                          <div key={name} style={styles.tickerRow}>
+                            <div style={styles.tickerTop}>
+                              <strong style={styles.tickerName}>{name}</strong>
+                              <span style={{ ...styles.tickerPnl, color: pnlColor(pnl) }}>{yen(pnl)}</span>
+                            </div>
+                            <div style={styles.progressTrack}>
+                              <div style={{ ...styles.progressBar, width: `${pct}%`, background: pnl >= 0 ? CAT_COLOR[cat] : "#ef4444" }} />
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </main>
+
+      <nav style={styles.bottomNav}>
+        {[
+          ["home", "📊", "見る"],
+          ["input", "＋", "記録"],
+          ["detail", "📋", "銘柄"],
+        ].map(([key, icon, label]) => (
+          <button key={key} onClick={() => setTab(key)} style={{ ...styles.navButton, color: tab === key ? "#c4b5fd" : "#64748b" }}>
+            <span style={styles.navIcon}>{icon}</span>
+            {label}
+          </button>
+        ))}
+      </nav>
+
+      {modal && (
+        <div style={styles.overlay} onClick={() => setModal(null)}>
+          <div style={styles.sheet} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.sheetHandle} />
+            <div style={styles.sheetHead}>
+              <div>
+                <div style={styles.sectionLabel}>{year}年 {MONTHS[modal.month - 1]}</div>
+                <h2 style={{ ...styles.sheetTitle, color: CAT_COLOR[modal.cat] }}>{modal.cat}</h2>
+              </div>
+              <button style={styles.closeButton} onClick={() => setModal(null)}>×</button>
+            </div>
+
+            <label style={styles.label}>合計金額（円）</label>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={editTotal}
+              onChange={(e) => setEditTotal(e.target.value)}
+              placeholder="例：54100 / マイナスは -12000"
+              style={styles.input}
+            />
+
+            <div style={styles.rowHead}>
+              <span style={styles.label}>銘柄ごとの記録（任意）</span>
+              <button style={styles.syncButton} onClick={() => syncTotal(tickers)}>合計に反映</button>
+            </div>
+
+            <div style={styles.tickerEditorList}>
+              {tickers.map((t, i) => (
+                <div key={i} style={styles.editorRow}>
+                  <input
+                    value={t.name}
+                    onChange={(e) => {
+                      const next = tickers.map((x, j) => j === i ? { ...x, name: e.target.value } : x);
+                      setTickers(next);
+                    }}
+                    placeholder="銘柄名"
+                    style={{ ...styles.input, marginBottom: 0 }}
+                  />
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={t.pnl}
+                    onChange={(e) => {
+                      const next = tickers.map((x, j) => j === i ? { ...x, pnl: Number(e.target.value) || 0 } : x);
+                      setTickers(next);
+                      syncTotal(next);
+                    }}
+                    placeholder="損益"
+                    style={{ ...styles.input, marginBottom: 0 }}
+                  />
+                  <button onClick={() => removeTicker(i)} style={styles.deleteSmall}>×</button>
+                </div>
+              ))}
+            </div>
+
+            <div style={styles.addBox}>
+              <input
+                value={newTicker.name}
+                onChange={(e) => setNewTicker((p) => ({ ...p, name: e.target.value }))}
+                placeholder="銘柄名"
+                style={{ ...styles.input, marginBottom: 0 }}
+              />
+              <input
+                type="number"
+                inputMode="numeric"
+                value={newTicker.pnl}
+                onChange={(e) => setNewTicker((p) => ({ ...p, pnl: e.target.value }))}
+                placeholder="損益"
+                style={{ ...styles.input, marginBottom: 0 }}
+              />
+              <button onClick={addTicker} style={{ ...styles.addButton, background: CAT_DIM[modal.cat], color: CAT_COLOR[modal.cat] }}>追加</button>
+            </div>
+
+            <div style={styles.sheetActions}>
+              <button onClick={() => setModal(null)} style={styles.cancelButton}>キャンセル</button>
+              <button onClick={saveModal} style={{ ...styles.saveButton, borderColor: CAT_COLOR[modal.cat], color: CAT_COLOR[modal.cat], background: `${CAT_COLOR[modal.cat]}22` }}>保存</button>
+            </div>
+
+            {getRecord(modal.month, modal.cat) && (
+              <button
+                onClick={() => {
+                  const key = `${year}-${modal.month}-${modal.cat}`;
+                  setRecords((prev) => {
+                    const next = { ...prev };
+                    delete next[key];
+                    return next;
+                  });
+                  setModal(null);
+                }}
+                style={styles.deleteButton}
+              >
+                この記録を削除
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniKpi({ label, value, color }) {
+  return (
+    <div style={styles.miniKpi}>
+      <span style={{ ...styles.catDot, background: color }} />
+      <span style={styles.miniKpiLabel}>{label}</span>
+      <strong style={{ color: pnlColor(value) }}>{yen(value)}</strong>
+    </div>
+  );
+}
+
+function Summary({ label, value }) {
+  return (
+    <div style={styles.summaryCard}>
+      <div style={styles.summaryLabel}>{label}</div>
+      <div style={styles.summaryValue}>{value}</div>
+    </div>
+  );
+}
+
+const styles = {
+  app: {
+    minHeight: "100vh",
+    background: "linear-gradient(180deg,#fff7ed 0%,#f8fafc 38%,#eef2ff 100%)",
+    color: "#334155",
+    fontFamily: "'M PLUS 1p','Noto Sans JP','Hiragino Sans',system-ui,sans-serif",
+    WebkitFontSmoothing: "antialiased",
+    paddingBottom: "calc(86px + env(safe-area-inset-bottom))",
+  },
+  header: {
+    padding: "18px 16px 12px",
+    maxWidth: 520,
+    margin: "0 auto",
+  },
+  topRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 14,
+  },
+  eyebrow: {
+    fontSize: 11,
+    letterSpacing: ".18em",
+    color: "#94a3b8",
+    textTransform: "uppercase",
+  },
+  title: {
+    margin: "4px 0 0",
+    fontSize: 22,
+    lineHeight: 1.2,
+    fontWeight: 900,
+    color: "#1e293b",
+  },
+  statusPill: {
+    border: "1px solid",
+    borderRadius: 999,
+    padding: "7px 10px",
+    fontSize: 12,
+    fontWeight: 800,
+    whiteSpace: "nowrap",
+  },
+  heroCard: {
+    background: "linear-gradient(160deg,#ffffff 0%,#fff7ed 100%)",
+    border: "1px solid #fed7aa",
+    borderRadius: 24,
+    padding: 18,
+    boxShadow: "0 16px 36px rgba(148,163,184,.20)",
+  },
+  heroLabel: {
+    fontSize: 12,
+    color: "#94a3b8",
+    marginBottom: 6,
+  },
+  heroValue: {
+    fontSize: "clamp(30px, 9vw, 42px)",
+    lineHeight: 1.1,
+    fontWeight: 900,
+    letterSpacing: "-.04em",
+  },
+  kpiGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gap: 8,
+    marginTop: 16,
+  },
+  miniKpi: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    background: "rgba(255,255,255,.72)",
+    border: "1px solid #e2e8f0",
+    borderRadius: 14,
+    padding: "10px 12px",
+  },
+  miniKpiLabel: {
+    flex: 1,
+    color: "#475569",
+    fontSize: 13,
+  },
+  main: {
+    maxWidth: 520,
+    margin: "0 auto",
+    padding: "0 16px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 14,
+  },
+  card: {
+    background: "rgba(255,255,255,.88)",
+    border: "1px solid #e2e8f0",
+    borderRadius: 22,
+    padding: 16,
+    boxShadow: "0 12px 28px rgba(148,163,184,.16)",
+  },
+  sectionHead: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 10,
+  },
+  sectionHeadCompact: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 14,
+  },
+  sectionLabel: {
+    fontSize: 10,
+    letterSpacing: ".16em",
+    color: "#94a3b8",
+    fontWeight: 900,
+  },
+  sectionTitle: {
+    margin: "3px 0 0",
+    fontSize: 17,
+    lineHeight: 1.25,
+    color: "#1e293b",
+  },
+  smallButton: {
+    border: "1px solid #cbd5e1",
+    borderRadius: 999,
+    background: "#ffffff",
+    color: "#6366f1",
+    padding: "8px 12px",
+    fontWeight: 800,
+    fontSize: 12,
+    cursor: "pointer",
+  },
+  barChart: {
+    display: "grid",
+    gridTemplateColumns: "repeat(12, 1fr)",
+    alignItems: "end",
+    gap: 4,
+    height: 170,
+    paddingTop: 8,
+  },
+  barItem: {
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    height: "100%",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    gap: 4,
+    minWidth: 0,
+    padding: 0,
+    cursor: "pointer",
+  },
+  barValue: {
+    fontSize: 9,
+    fontWeight: 900,
+    writingMode: "vertical-rl",
+    lineHeight: 1,
+    maxHeight: 42,
+  },
+  bar: {
+    width: "72%",
+    minHeight: 6,
+    borderRadius: 999,
+    transition: "height .2s ease, outline .2s ease",
+  },
+  monthLabel: {
+    fontSize: 10,
+    fontWeight: 800,
+  },
+  totalBadge: {
+    border: "1px solid",
+    borderRadius: 999,
+    padding: "8px 10px",
+    fontSize: 12,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  actionGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr",
+    gap: 10,
+  },
+  catButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    textAlign: "left",
+    background: "#f8fafc",
+    border: "1px solid",
+    borderRadius: 16,
+    padding: "14px 13px",
+    color: "#334155",
+    cursor: "pointer",
+  },
+  catDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 99,
+    flex: "0 0 auto",
+  },
+  catName: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: 800,
+  },
+  summaryGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: 10,
+    marginTop: 12,
+  },
+  summaryCard: {
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: 14,
+    padding: 12,
+  },
+  summaryLabel: {
+    fontSize: 11,
+    color: "#94a3b8",
+    marginBottom: 5,
+  },
+  summaryValue: {
+    fontSize: 12,
+    color: "#334155",
+    fontWeight: 800,
+  },
+  helpText: {
+    fontSize: 12,
+    color: "#94a3b8",
+  },
+  monthGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 9,
+  },
+  monthCard: {
+    border: "1px solid",
+    borderRadius: 16,
+    padding: "12px 8px",
+    color: "#334155",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 6,
+    cursor: "pointer",
+  },
+  monthCardLabel: {
+    fontSize: 12,
+    color: "#94a3b8",
+    fontWeight: 800,
+  },
+  inputButtons: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    marginTop: 14,
+  },
+  largeEditButton: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "100%",
+    minHeight: 74,
+    border: "1px solid",
+    borderRadius: 18,
+    background: "#f8fafc",
+    color: "#334155",
+    padding: 14,
+    textAlign: "left",
+    cursor: "pointer",
+  },
+  largeIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    display: "grid",
+    placeItems: "center",
+    fontWeight: 900,
+    flex: "0 0 auto",
+  },
+  largeEditLabel: {
+    display: "block",
+    color: "#475569",
+    fontSize: 13,
+    marginBottom: 4,
+  },
+  largeEditValue: {
+    display: "block",
+    fontSize: 17,
+  },
+  chevron: {
+    color: "#94a3b8",
+    fontSize: 30,
+    lineHeight: 1,
+  },
+  emptyState: {
+    textAlign: "center",
+    color: "#94a3b8",
+    fontSize: 13,
+    lineHeight: 1.8,
+    padding: "24px 8px",
+    background: "#f8fafc",
+    border: "1px dashed #cbd5e1",
+    borderRadius: 16,
+  },
+  tickerList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  tickerRow: {
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: 16,
+    padding: 12,
+  },
+  tickerTop: {
+    display: "flex",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 10,
+    marginBottom: 9,
+  },
+  tickerName: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    color: "#1e293b",
+    fontSize: 14,
+  },
+  tickerPnl: {
+    fontSize: 14,
+    fontWeight: 900,
+    whiteSpace: "nowrap",
+  },
+  progressTrack: {
+    width: "100%",
+    height: 7,
+    borderRadius: 999,
+    background: "#1f2d45",
+    overflow: "hidden",
+  },
+  progressBar: {
+    height: "100%",
+    borderRadius: 999,
+  },
+  bottomNav: {
+    position: "fixed",
+    left: 12,
+    right: 12,
+    bottom: "calc(10px + env(safe-area-inset-bottom))",
+    maxWidth: 520,
+    margin: "0 auto",
+    background: "rgba(255,255,255,.92)",
+    border: "1px solid #e2e8f0",
+    borderRadius: 24,
+    padding: 8,
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: 4,
+    backdropFilter: "blur(18px)",
+    boxShadow: "0 16px 40px rgba(148,163,184,.28)",
+    zIndex: 80,
+  },
+  navButton: {
+    border: "none",
+    background: "transparent",
+    borderRadius: 18,
+    padding: "9px 4px 8px",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: 2,
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  navIcon: {
+    fontSize: 18,
+    lineHeight: 1,
+  },
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(15,23,42,.42)",
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    zIndex: 200,
+    padding: "16px 12px 0",
+  },
+  sheet: {
+    width: "100%",
+    maxWidth: 520,
+    maxHeight: "88vh",
+    overflowY: "auto",
+    background: "#ffffff",
+    border: "1px solid #e2e8f0",
+    borderBottom: "none",
+    borderRadius: "26px 26px 0 0",
+    padding: "10px 16px calc(18px + env(safe-area-inset-bottom))",
+    boxShadow: "0 -20px 50px rgba(100,116,139,.25)",
+  },
+  sheetHandle: {
+    width: 42,
+    height: 5,
+    borderRadius: 999,
+    background: "#cbd5e1",
+    margin: "0 auto 14px",
+  },
+  sheetHead: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 16,
+  },
+  sheetTitle: {
+    margin: "3px 0 0",
+    fontSize: 22,
+    lineHeight: 1.2,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    border: "1px solid #e2e8f0",
+    borderRadius: 14,
+    background: "#ffffff",
+    color: "#94a3b8",
+    fontSize: 24,
+    lineHeight: 1,
+    cursor: "pointer",
+  },
+  label: {
+    display: "block",
+    fontSize: 12,
+    color: "#475569",
+    fontWeight: 800,
+    marginBottom: 7,
+  },
+  input: {
+    width: "100%",
+    minHeight: 48,
+    background: "#f8fafc",
+    border: "1px solid #e2e8f0",
+    borderRadius: 14,
+    padding: "12px 13px",
+    fontSize: 16,
+    color: "#1e293b",
+    outline: "none",
+    boxSizing: "border-box",
+    marginBottom: 14,
+  },
+  rowHead: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    marginTop: 4,
+  },
+  syncButton: {
+    border: "1px solid #cbd5e1",
+    background: "#ffffff",
+    color: "#6366f1",
+    borderRadius: 999,
+    padding: "7px 10px",
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  tickerEditorList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  editorRow: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 40px",
+    gap: 7,
+    alignItems: "center",
+  },
+  deleteSmall: {
+    height: 48,
+    border: "1px solid #fecaca",
+    background: "#fee2e2",
+    color: "#dc2626",
+    borderRadius: 14,
+    fontSize: 20,
+    cursor: "pointer",
+  },
+  addBox: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr 58px",
+    gap: 7,
+    alignItems: "center",
+    marginTop: 10,
+  },
+  addButton: {
+    height: 48,
+    border: "none",
+    borderRadius: 14,
+    fontSize: 13,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  sheetActions: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1.35fr",
+    gap: 9,
+    marginTop: 18,
+  },
+  cancelButton: {
+    minHeight: 50,
+    border: "1px solid #e2e8f0",
+    background: "#ffffff",
+    color: "#94a3b8",
+    borderRadius: 16,
+    fontSize: 15,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  saveButton: {
+    minHeight: 50,
+    border: "1px solid",
+    borderRadius: 16,
+    fontSize: 15,
+    fontWeight: 900,
+    cursor: "pointer",
+  },
+  deleteButton: {
+    width: "100%",
+    minHeight: 44,
+    marginTop: 9,
+    border: "1px solid #fecaca",
+    background: "transparent",
+    color: "#dc2626",
+    borderRadius: 15,
+    fontSize: 13,
+    fontWeight: 800,
+    cursor: "pointer",
+  },
+};
+
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+  </body>
+</html>
