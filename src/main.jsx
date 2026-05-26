@@ -26,9 +26,9 @@ const numeric = (value) => {
 };
 
 const normalizeCode = (value) => {
-  const code = String(value || "").trim();
-  if (/^\d{4}$/.test(code)) return `${code}.jp`;
-  return code.replace(/\.t$/i, ".jp");
+  const code = String(value || "").trim().toUpperCase();
+  if (/^(?=.*\d)[0-9A-Z]{4,5}$/.test(code)) return `${code}.jp`;
+  return code.replace(/\.T$/i, ".jp");
 };
 
 const findColumn = (headers, candidates) =>
@@ -127,6 +127,8 @@ function App() {
   });
   const [message, setMessage] = useState("銘柄コードだけでも登録できます。CSV読み込みも使えます。");
   const [manual, setManual] = useState({ code: "", quantity: "", averageCost: "" });
+  const [companyQuery, setCompanyQuery] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const inputRef = useRef(null);
 
@@ -172,7 +174,7 @@ function App() {
     const averageCost = numeric(manual.averageCost);
 
     if (!code) {
-      setMessage("銘柄コードを入力してください。例: 7203");
+      setMessage("銘柄コードを入力してください。例: 7203 / 130A");
       return;
     }
 
@@ -210,6 +212,37 @@ function App() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const searchCompany = async (event) => {
+    event.preventDefault();
+    const query = companyQuery.trim();
+
+    if (!query) {
+      setMessage("企業名か銘柄コードを入力してください。例: トヨタ / 7203 / 130A");
+      return;
+    }
+
+    setLoading(true);
+    setMessage(`${query} を検索しています。`);
+    try {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const data = await response.json();
+      const results = data.results || [];
+      setSearchResults(results);
+      setMessage(results.length ? `${results.length}件の候補が見つかりました。` : "候補が見つかりませんでした。");
+    } catch (error) {
+      setMessage(`検索できませんでした: ${error.message}`);
+      setSearchResults([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const chooseSearchResult = (result) => {
+    setManual((current) => ({ ...current, code: result.symbol }));
+    setCompanyQuery(result.name || result.symbol);
+    setMessage(`${result.name || result.symbol} を選びました。数量を入れて登録してください。`);
   };
 
   const updatePricesAndNews = async () => {
@@ -291,12 +324,41 @@ function App() {
               <Search size={20} />
               <h2>記録</h2>
             </div>
+            <form className="searchForm" onSubmit={searchCompany}>
+              <label>
+                企業名で検索
+                <div className="searchRow">
+                  <input
+                    type="search"
+                    placeholder="トヨタ / ソニー / 130A"
+                    value={companyQuery}
+                    onChange={(event) => setCompanyQuery(event.target.value)}
+                  />
+                  <button className="iconSubmit" type="submit" aria-label="検索" disabled={loading}>
+                    <Search size={18} />
+                  </button>
+                </div>
+              </label>
+            </form>
+            {searchResults.length > 0 && (
+              <div className="resultList">
+                {searchResults.map((result) => (
+                  <button key={`${result.symbol}-${result.exchange}`} type="button" onClick={() => chooseSearchResult(result)}>
+                    <span>
+                      <strong>{result.name || result.symbol}</strong>
+                      <small>{result.symbol} / {result.exchange || "Yahoo Finance"}</small>
+                    </span>
+                    <Search size={16} />
+                  </button>
+                ))}
+              </div>
+            )}
             <form className="manualForm" onSubmit={addByCode}>
               <label>
                 銘柄コード
                 <input
-                  inputMode="numeric"
-                  placeholder="7203"
+                  autoCapitalize="characters"
+                  placeholder="7203 / 130A"
                   value={manual.code}
                   onChange={(event) => setManual((current) => ({ ...current, code: event.target.value }))}
                 />
@@ -414,14 +476,14 @@ function App() {
               <h2>使い方</h2>
             </div>
             <ol className="steps">
-              <li>下メニューの「記録」で銘柄コードを入れて登録します。</li>
+              <li>下メニューの「記録」で企業名を検索するか、銘柄コードを入れて登録します。</li>
               <li>数量と取得単価を入れると評価額と損益が見やすくなります。</li>
               <li>楽天証券CSVを持っている場合は「楽天証券CSVを読み込み」も使えます。</li>
               <li>登録後、「株価」から「株価・ニュース更新」を押します。</li>
               <li>iPhoneではSafariの共有ボタンから「ホーム画面に追加」するとアプリ風に使えます。</li>
             </ol>
             <div className="tip">
-              日本株コードは `7203` を自動で `7203.jp` として扱います。株価取得時はサーバー側でYahoo Finance形式に変換します。
+              日本株コードは `7203` や `130A` を自動で `7203.jp` / `130A.jp` として扱います。株価取得時はサーバー側でYahoo Finance形式に変換します。
             </div>
           </section>
         )}
