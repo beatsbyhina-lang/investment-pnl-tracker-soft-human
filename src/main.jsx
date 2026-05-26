@@ -251,8 +251,15 @@ function App() {
       const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
       const data = await response.json();
       const results = data.results || [];
+      const firstResult = results[0];
       setSearchResults(results);
-      setMessage(results.length ? `${results.length}件の候補が見つかりました。` : "候補が見つかりませんでした。");
+      if (firstResult) {
+        setManual((current) => ({ ...current, code: firstResult.symbol }));
+        setCompanyQuery(firstResult.name || firstResult.symbol);
+        setMessage(`${firstResult.name || firstResult.symbol} の銘柄コード ${firstResult.symbol} を入力しました。`);
+      } else {
+        setMessage("候補が見つかりませんでした。");
+      }
     } catch (error) {
       setMessage(`検索できませんでした: ${error.message}`);
       setSearchResults([]);
@@ -286,13 +293,20 @@ function App() {
         holdings.map(async (item) => {
           const quote = quoteMap.get(item.code.toLowerCase());
           let news = item.news || [];
+          let newsStatus = item.newsStatus || "";
 
           try {
             const newsResponse = await fetch(`/api/news?symbol=${encodeURIComponent(item.code)}&name=${encodeURIComponent(item.name)}`);
             const newsData = await newsResponse.json();
-            news = newsData.news || [];
-          } catch {
-            news = [];
+            const nextNews = newsData.news || [];
+            if (nextNews.length) {
+              news = nextNews;
+              newsStatus = "";
+            } else {
+              newsStatus = newsData.error ? `ニュース取得エラー: ${newsData.error}` : "関連ニュースは見つかりませんでした。";
+            }
+          } catch (error) {
+            newsStatus = `ニュース取得エラー: ${error.message}`;
           }
 
           return {
@@ -300,13 +314,15 @@ function App() {
             price: quote?.price ?? item.price,
             updatedAt: quote?.price ? new Date().toISOString() : item.updatedAt,
             news,
+            newsStatus,
             error: quote?.error || "",
           };
         })
       );
 
       setHoldings(sortHoldingsByPnl(withQuotes));
-      setMessage("株価とニュースを更新しました。");
+      const newsCount = withQuotes.reduce((count, item) => count + (item.news?.length || 0), 0);
+      setMessage(newsCount ? `株価とニュースを更新しました。ニュース${newsCount}件。` : "株価を更新しました。ニュースは見つかりませんでした。");
     } catch (error) {
       setMessage(`更新できませんでした: ${error.message}`);
     } finally {
@@ -484,6 +500,7 @@ function App() {
                         ))}
                       </div>
                     )}
+                    {item.newsStatus && <p className="newsStatus">{item.newsStatus}</p>}
                   </article>
                 );
               })}
