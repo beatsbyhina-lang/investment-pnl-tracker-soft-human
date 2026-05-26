@@ -1,15 +1,15 @@
 const normalizeSymbol = (raw) => {
-  const value = String(raw || "").trim();
+  const value = String(raw || "").trim().toUpperCase();
   if (!value) return "";
-  if (/^\d{4}$/.test(value)) return `${value}.T`;
-  if (/^\d{4}\.jp$/i.test(value)) return `${value.slice(0, 4)}.T`;
+  if (/^(?=.*\d)[0-9A-Z]{4,5}$/.test(value)) return `${value}.T`;
+  if (/^(?=.*\d)[0-9A-Z]{4,5}\.jp$/i.test(value)) return `${value.replace(/\.jp$/i, "")}.T`;
   return value.replace(/\.jp$/i, ".T");
 };
 
 const displaySymbol = (raw) => {
-  const value = String(raw || "").trim();
-  if (/^\d{4}$/.test(value)) return `${value}.jp`;
-  if (/^\d{4}\.T$/i.test(value)) return `${value.slice(0, 4)}.jp`;
+  const value = String(raw || "").trim().toUpperCase();
+  if (/^(?=.*\d)[0-9A-Z]{4,5}$/.test(value)) return `${value}.jp`;
+  if (/^(?=.*\d)[0-9A-Z]{4,5}\.T$/i.test(value)) return `${value.replace(/\.T$/i, "")}.jp`;
   return value;
 };
 
