@@ -31,6 +31,26 @@ const normalizeCode = (value) => {
   return code.replace(/\.T$/i, ".jp");
 };
 
+const holdingPnl = (item) => {
+  const quantity = Number(item.quantity) || 0;
+  const price = item.price !== null && item.price !== undefined ? Number(item.price) : null;
+  const averageCost = item.averageCost !== null && item.averageCost !== undefined ? Number(item.averageCost) : null;
+  const value = price !== null && Number.isFinite(price) ? price * quantity : null;
+  const cost = averageCost !== null && Number.isFinite(averageCost) ? averageCost * quantity : null;
+
+  if (value !== null && cost !== null) return value - cost;
+  return item.importedPnl ?? null;
+};
+
+const sortHoldingsByPnl = (items) =>
+  [...items].sort((a, b) => {
+    const aPnl = holdingPnl(a);
+    const bPnl = holdingPnl(b);
+    const aValue = aPnl === null || aPnl === undefined || Number.isNaN(Number(aPnl)) ? -Infinity : Number(aPnl);
+    const bValue = bPnl === null || bPnl === undefined || Number.isNaN(Number(bPnl)) ? -Infinity : Number(bPnl);
+    return bValue - aValue;
+  });
+
 const findColumn = (headers, candidates) =>
   headers.find((header) => candidates.some((candidate) => header.replace(/\s/g, "").includes(candidate)));
 
@@ -141,7 +161,7 @@ function App() {
       (acc, item) => {
         const cost = (item.averageCost || 0) * (item.quantity || 0);
         const value = item.price ? item.price * item.quantity : null;
-        const pnl = value !== null ? value - cost : item.importedPnl;
+        const pnl = holdingPnl(item);
         acc.cost += cost;
         if (value !== null) acc.value += value;
         if (pnl !== null && pnl !== undefined) acc.pnl += pnl;
@@ -150,6 +170,8 @@ function App() {
       { cost: 0, value: 0, pnl: 0 }
     );
   }, [holdings]);
+
+  const sortedHoldings = useMemo(() => sortHoldingsByPnl(holdings), [holdings]);
 
   const importFile = async (file) => {
     if (!file) return;
@@ -283,7 +305,7 @@ function App() {
         })
       );
 
-      setHoldings(withQuotes);
+      setHoldings(sortHoldingsByPnl(withQuotes));
       setMessage("株価とニュースを更新しました。");
     } catch (error) {
       setMessage(`更新できませんでした: ${error.message}`);
@@ -428,10 +450,10 @@ function App() {
             </button>
             <div className="holdingList">
               {holdings.length === 0 && <div className="empty">まだ銘柄がありません。</div>}
-              {holdings.map((item) => {
+              {sortedHoldings.map((item) => {
                 const value = item.price ? item.price * item.quantity : null;
                 const cost = item.averageCost ? item.averageCost * item.quantity : null;
-                const pnl = value !== null && cost !== null ? value - cost : item.importedPnl;
+                const pnl = holdingPnl(item);
 
                 return (
                   <article className="holding" key={item.id}>
