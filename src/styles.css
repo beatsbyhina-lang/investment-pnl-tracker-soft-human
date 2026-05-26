@@ -358,6 +358,13 @@ h1 {
   font-weight: 600;
 }
 
+.newsStatus {
+  margin-top: 10px;
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .empty {
   padding: 28px 14px;
   border: 1px dashed #b9c4d0;
