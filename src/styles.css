@@ -127,6 +127,74 @@ h1 {
   cursor: pointer;
 }
 
+.searchForm {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.searchForm label {
+  display: grid;
+  gap: 7px;
+  color: #344054;
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.searchRow {
+  display: grid;
+  grid-template-columns: 1fr 52px;
+  gap: 8px;
+}
+
+.iconSubmit {
+  min-height: 48px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: #172033;
+  color: #fff;
+}
+
+.resultList {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 14px;
+}
+
+.resultList button {
+  width: 100%;
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #d8e0ea;
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #172033;
+  text-align: left;
+}
+
+.resultList span {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.resultList strong,
+.resultList small {
+  overflow-wrap: anywhere;
+}
+
+.resultList small {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .manualForm {
   display: grid;
   gap: 12px;
